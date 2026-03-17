@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { useSendMessage } from "@workspace/api-client-react";
-import type { ChatMessage, ChatHistoryResponse } from "@workspace/api-client-react/src/generated/api.schemas";
 
 export const LANGUAGES = [
   { code: "en", name: "English" },
@@ -16,8 +14,16 @@ export const LANGUAGES = [
   { code: "gu", name: "ગુજરાતી" },
 ];
 
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  message: string;
+  timestamp: string;
+  module?: "legal" | "kisan" | "yojana" | "general";
+  streaming?: boolean;
+}
+
 export function useChatSession() {
-  // Manage Session ID
   const [sessionId] = useState(() => {
     const stored = localStorage.getItem("swadhikar_session_id");
     if (stored) return stored;
@@ -26,7 +32,6 @@ export function useChatSession() {
     return newId;
   });
 
-  // Manage Language Preferences
   const [language, setLanguage] = useState(() => {
     return localStorage.getItem("swadhikar_language") || "en";
   });
@@ -35,91 +40,137 @@ export function useChatSession() {
     localStorage.setItem("swadhikar_language", language);
   }, [language]);
 
-  const sendMessageMutation = useSendMessage();
-
-  // Local state for optimistic updates and immediate feedback
-  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
-  // Load history with sessionId as query param
-  const refetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch(`/api/chat/history?sessionId=${encodeURIComponent(sessionId)}`);
       if (res.ok) {
-        const data: ChatHistoryResponse = await res.json();
-        if (data?.messages) {
-          setLocalMessages(data.messages);
+        const data = await res.json();
+        if (data?.messages?.length > 0) {
+          setMessages(data.messages);
         }
       }
-    } catch (e) {
-      // Silently ignore
+    } catch {
+      // silently ignore
     }
   }, [sessionId]);
 
-  // Initial load
   useEffect(() => {
     setIsLoadingHistory(true);
-    refetchHistory().finally(() => setIsLoadingHistory(false));
-  }, [refetchHistory]);
+    fetchHistory().finally(() => setIsLoadingHistory(false));
+  }, [fetchHistory]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() || isTyping) return;
 
-    // Optimistic User Message
-    const userMessage: ChatMessage = {
+    const userMsg: ChatMessage = {
       id: uuidv4(),
       role: "user",
       message: text.trim(),
       timestamp: new Date().toISOString(),
     };
 
-    setLocalMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
+    // Create a placeholder streaming message
+    const streamingId = uuidv4();
+    const streamingMsg: ChatMessage = {
+      id: streamingId,
+      role: "assistant",
+      message: "",
+      timestamp: new Date().toISOString(),
+      streaming: true,
+    };
+    setMessages((prev) => [...prev, streamingMsg]);
+
     try {
-      const response = await sendMessageMutation.mutateAsync({
-        data: {
+      const response = await fetch("/api/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           message: text.trim(),
           language,
           sessionId,
-        },
+        }),
       });
 
-      // Append Assistant Response
-      const assistantMessage: ChatMessage = {
-        id: response.id,
-        role: "assistant",
-        message: response.message,
-        timestamp: response.timestamp,
-        module: response.module as any, // Cast to match schema type
-      };
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
 
-      setLocalMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      // Optional: Add a local error message bubble
-      setLocalMessages((prev) => [
-        ...prev,
-        {
-          id: uuidv4(),
-          role: "assistant",
-          message: "Sorry, I am having trouble connecting to the network. Please try again.",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalModule: ChatMessage["module"] = "general";
+      let finalTimestamp = new Date().toISOString();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const json = JSON.parse(line.slice(6));
+
+            if (json.done) {
+              finalModule = json.module ?? "general";
+              finalTimestamp = json.timestamp ?? new Date().toISOString();
+              // Finalize streaming message
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === streamingId
+                    ? { ...m, streaming: false, module: finalModule, timestamp: finalTimestamp }
+                    : m
+                )
+              );
+            } else if (json.content) {
+              // Append streamed text
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === streamingId
+                    ? { ...m, message: m.message + json.content }
+                    : m
+                )
+              );
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Chat error:", err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamingId
+            ? {
+                ...m,
+                message: "Sorry, I'm having trouble connecting right now. Please try again.",
+                streaming: false,
+                module: "general",
+              }
+            : m
+        )
+      );
     } finally {
       setIsTyping(false);
-      // Silently refresh history in background to ensure consistency
-      refetchHistory();
     }
-  }, [language, sessionId, sendMessageMutation, refetchHistory]);
+  }, [language, sessionId, isTyping]);
 
   return {
     sessionId,
     language,
     setLanguage,
-    messages: localMessages,
+    messages,
     isLoadingHistory,
     isTyping,
     sendMessage,

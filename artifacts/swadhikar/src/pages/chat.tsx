@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { Send, Mic, ArrowLeft, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useChatSession, LANGUAGES } from "@/hooks/use-chat-session";
+import { useChatSession, LANGUAGES, type ChatMessage } from "@/hooks/use-chat-session";
 import { ChatBubble } from "@/components/chat-bubble";
 import { TypingIndicator } from "@/components/typing-indicator";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,7 @@ const QUICK_REPLIES = [
   "📝 How to file RTI"
 ];
 
-const WELCOME_MESSAGE = {
+const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome-local",
   role: "assistant" as const,
   message: "Namaste! I'm Swadhikar, your rights navigator. I can help you with:\n\n⚖️ Legal rights and how to claim them\n🌾 Farmer schemes and crop insurance\n🏛️ Government welfare schemes you qualify for\n\nWhat would you like help with today?",

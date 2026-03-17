@@ -1,21 +1,36 @@
 import { format } from "date-fns";
-import { Check, Bot, User } from "lucide-react";
+import { Check, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ChatMessage } from "@workspace/api-client-react/src/generated/api.schemas";
+import type { ChatMessage } from "@/hooks/use-chat-session";
 import { motion } from "framer-motion";
 
 interface ChatBubbleProps {
   message: ChatMessage;
 }
 
+function renderMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/^#{1,3} (.+)$/gm, "<strong class=\"text-base\">$1</strong>")
+    .replace(/^(\d+)\. (.+)$/gm, "<span class=\"block mt-1\"><span class=\"font-semibold\">$1.</span> $2</span>")
+    .replace(/^- (.+)$/gm, "<span class=\"block mt-0.5 pl-2\">• $1</span>")
+    .replace(/\n\n/g, "<br/><br/>")
+    .replace(/\n/g, "<br/>");
+}
+
 export function ChatBubble({ message }: ChatBubbleProps) {
   const isUser = message.role === "user";
+  const isStreaming = message.streaming;
 
-  const timeString = format(new Date(message.timestamp), "h:mm a");
+  let timeString = "";
+  try {
+    timeString = format(new Date(message.timestamp), "h:mm a");
+  } catch {
+    timeString = "";
+  }
 
-  // Determine styling based on module
   let moduleStyles = "bg-white border-border shadow-sm text-foreground";
-  let ModuleIcon = Bot;
   
   if (!isUser && message.module) {
     switch (message.module) {
@@ -28,40 +43,46 @@ export function ChatBubble({ message }: ChatBubbleProps) {
       case "yojana":
         moduleStyles = "bg-orange-50 border-orange-200 text-orange-900 shadow-sm shadow-orange-500/5";
         break;
-      case "general":
+      default:
         moduleStyles = "bg-white border-border text-foreground shadow-sm";
-        break;
     }
   } else if (isUser) {
-    // User bubble style (WhatsApp-ish green)
     moduleStyles = "bg-[#E0F8D8] border-[#c5e6bc] text-slate-800 shadow-sm";
   }
 
+  const moduleLabel: Record<string, string> = {
+    legal: "⚖️ LEGAL",
+    kisan: "🌾 KISAN",
+    yojana: "🏛️ YOJANA",
+  };
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className={cn(
-        "flex w-full mb-4",
-        isUser ? "justify-end" : "justify-start"
-      )}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={cn("flex w-full mb-3", isUser ? "justify-end" : "justify-start")}
     >
-      <div className={cn(
-        "flex max-w-[85%] md:max-w-[75%] lg:max-w-[65%]",
-        isUser ? "flex-row-reverse" : "flex-row"
-      )}>
-        
+      <div className={cn("flex max-w-[88%] md:max-w-[78%]", isUser ? "flex-row-reverse" : "flex-row")}>
         {/* Avatar */}
-        <div className={cn(
-          "flex-shrink-0 flex items-end",
-          isUser ? "ml-2" : "mr-2"
-        )}>
+        <div className={cn("flex-shrink-0 flex items-end", isUser ? "ml-2" : "mr-2")}>
           <div className={cn(
             "w-8 h-8 rounded-full flex items-center justify-center shadow-sm",
             isUser ? "bg-primary text-primary-foreground" : "bg-white border border-border text-primary"
           )}>
-            {isUser ? <User className="w-5 h-5" /> : <img src={`${import.meta.env.BASE_URL}images/logo-mark.png`} alt="Swadhikar" className="w-5 h-5 object-contain" />}
+            {isUser ? (
+              <span className="text-xs font-bold">You</span>
+            ) : (
+              <img
+                src={`${import.meta.env.BASE_URL}images/logo-mark.png`}
+                alt="Swadhikar"
+                className="w-5 h-5 object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                  (e.target as HTMLImageElement).parentElement!.innerHTML = '<span class="text-xs font-bold">S</span>';
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -71,31 +92,50 @@ export function ChatBubble({ message }: ChatBubbleProps) {
           moduleStyles,
           isUser ? "rounded-br-sm" : "rounded-bl-sm"
         )}>
-          
-          {/* Module Badge (if assistant and specialized) */}
-          {!isUser && message.module && message.module !== "general" && (
-            <div className="flex items-center gap-1.5 mb-1.5">
+          {/* Module Badge */}
+          {!isUser && message.module && message.module !== "general" && moduleLabel[message.module] && (
+            <div className="mb-1.5">
               <span className={cn(
                 "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full inline-block",
                 message.module === "legal" ? "bg-blue-100 text-blue-700" :
                 message.module === "kisan" ? "bg-green-100 text-green-700" :
                 "bg-orange-100 text-orange-700"
               )}>
-                {message.module.toUpperCase()}
+                {moduleLabel[message.module]}
               </span>
             </div>
           )}
 
-          {/* Message Text */}
-          <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">
-            {message.message}
-          </div>
+          {/* Message Content */}
+          {isUser ? (
+            <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">
+              {message.message}
+            </div>
+          ) : (
+            <div
+              className="text-[15px] leading-relaxed break-words"
+              dangerouslySetInnerHTML={{
+                __html: renderMarkdown(message.message) + (isStreaming && message.message ? '<span class="inline-block w-0.5 h-4 bg-current align-middle ml-0.5 animate-pulse">▋</span>' : ""),
+              }}
+            />
+          )}
 
-          {/* Timestamp & Status */}
-          <div className="flex items-center justify-end gap-1 mt-1 opacity-60">
-            <span className="text-[11px] font-medium">{timeString}</span>
-            {isUser && <Check className="w-3 h-3" />}
-          </div>
+          {/* Streaming dots if empty */}
+          {isStreaming && !message.message && (
+            <div className="flex items-center gap-1 py-1">
+              <div className="w-2 h-2 rounded-full bg-current opacity-60 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <div className="w-2 h-2 rounded-full bg-current opacity-60 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <div className="w-2 h-2 rounded-full bg-current opacity-60 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+          )}
+
+          {/* Timestamp */}
+          {!isStreaming && timeString && (
+            <div className="flex items-center justify-end gap-1 mt-1.5 opacity-50">
+              <span className="text-[11px] font-medium">{timeString}</span>
+              {isUser && <Check className="w-3 h-3" />}
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
