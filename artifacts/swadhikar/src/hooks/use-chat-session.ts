@@ -11,7 +11,7 @@ export const LANGUAGES = [
   { code: "kn", name: "ಕನ್ನಡ" },
   { code: "ml", name: "മലയാളം" },
   { code: "mr", name: "मराठी" },
-  { code: "gu", name: "ગુજરાతી" },
+  { code: "gu", name: "ગુજરાતી" },
 ];
 
 export interface ChatMessage {
@@ -23,32 +23,76 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
-const LS_MESSAGES = "swadhikar_messages";
-const LS_SESSION  = "swadhikar_session_id";
-const LS_LANGUAGE = "swadhikar_language";
-
-function loadMessages(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(LS_MESSAGES);
-    if (!raw) return [];
-    return JSON.parse(raw) as ChatMessage[];
-  } catch {
-    return [];
-  }
+export interface ChatSession {
+  id: string;
+  startedAt: string;
+  preview: string;
+  messages: ChatMessage[];
 }
 
-function saveMessages(msgs: ChatMessage[]) {
+const LS_CURRENT_MSGS = "swadhikar_messages";
+const LS_SESSION_ID   = "swadhikar_session_id";
+const LS_LANGUAGE     = "swadhikar_language";
+const LS_HISTORY      = "swadhikar_history";
+
+function loadCurrentMessages(): ChatMessage[] {
   try {
-    localStorage.setItem(LS_MESSAGES, JSON.stringify(msgs.filter((m) => !m.streaming)));
+    const raw = localStorage.getItem(LS_CURRENT_MSGS);
+    return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+  } catch { return []; }
+}
+
+function saveCurrentMessages(msgs: ChatMessage[]) {
+  try {
+    localStorage.setItem(LS_CURRENT_MSGS, JSON.stringify(msgs.filter((m) => !m.streaming)));
   } catch { /* ignore */ }
+}
+
+export function loadHistory(): ChatSession[] {
+  try {
+    const raw = localStorage.getItem(LS_HISTORY);
+    return raw ? (JSON.parse(raw) as ChatSession[]) : [];
+  } catch { return []; }
+}
+
+function saveHistory(sessions: ChatSession[]) {
+  try {
+    localStorage.setItem(LS_HISTORY, JSON.stringify(sessions));
+  } catch { /* ignore */ }
+}
+
+function archiveCurrentSession(sessionId: string, messages: ChatMessage[]) {
+  const userMsgs = messages.filter((m) => m.role === "user" && !m.streaming);
+  if (userMsgs.length === 0) return;
+
+  const preview = userMsgs[0].message.slice(0, 80);
+  const startedAt = messages[0]?.timestamp ?? new Date().toISOString();
+
+  const sessions = loadHistory();
+  const existing = sessions.findIndex((s) => s.id === sessionId);
+  const entry: ChatSession = {
+    id: sessionId,
+    startedAt,
+    preview,
+    messages: messages.filter((m) => !m.streaming),
+  };
+
+  if (existing >= 0) {
+    sessions[existing] = entry;
+  } else {
+    sessions.unshift(entry);
+  }
+
+  // Keep at most 30 sessions
+  saveHistory(sessions.slice(0, 30));
 }
 
 export function useChatSession() {
   const [sessionId, setSessionId] = useState(() => {
-    const stored = localStorage.getItem(LS_SESSION);
+    const stored = localStorage.getItem(LS_SESSION_ID);
     if (stored) return stored;
     const newId = uuidv4();
-    localStorage.setItem(LS_SESSION, newId);
+    localStorage.setItem(LS_SESSION_ID, newId);
     return newId;
   });
 
@@ -60,16 +104,25 @@ export function useChatSession() {
     localStorage.setItem(LS_LANGUAGE, language);
   }, [language]);
 
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadCurrentMessages());
   const [isTyping, setIsTyping] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-
-  // Persist messages to localStorage on every change
-  useEffect(() => {
-    saveMessages(messages);
-  }, [messages]);
+  const [isLoadingHistory] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist current messages to localStorage on every change
+  useEffect(() => {
+    saveCurrentMessages(messages);
+  }, [messages]);
+
+  // Archive current session when user navigates away
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      archiveCurrentSession(sessionId, messages);
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [sessionId, messages]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isTyping) return;
@@ -85,14 +138,16 @@ export function useChatSession() {
     setIsTyping(true);
 
     const streamingId = uuidv4();
-    const streamingMsg: ChatMessage = {
-      id: streamingId,
-      role: "assistant",
-      message: "",
-      timestamp: new Date().toISOString(),
-      streaming: true,
-    };
-    setMessages((prev) => [...prev, streamingMsg]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: streamingId,
+        role: "assistant",
+        message: "",
+        timestamp: new Date().toISOString(),
+        streaming: true,
+      },
+    ]);
 
     abortRef.current = new AbortController();
 
@@ -101,22 +156,14 @@ export function useChatSession() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: abortRef.current.signal,
-        body: JSON.stringify({
-          message: text.trim(),
-          language,
-          sessionId,
-        }),
+        body: JSON.stringify({ message: text.trim(), language, sessionId }),
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
+      if (!response.ok || !response.body) throw new Error(`HTTP error: ${response.status}`);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let finalModule: ChatMessage["module"] = "general";
-      let finalTimestamp = new Date().toISOString();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -130,29 +177,22 @@ export function useChatSession() {
           if (!line.startsWith("data: ")) continue;
           try {
             const json = JSON.parse(line.slice(6));
-
             if (json.done) {
-              finalModule = json.module ?? "general";
-              finalTimestamp = json.timestamp ?? new Date().toISOString();
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === streamingId
-                    ? { ...m, streaming: false, module: finalModule, timestamp: finalTimestamp }
+                    ? { ...m, streaming: false, module: json.module ?? "general", timestamp: json.timestamp ?? m.timestamp }
                     : m
                 )
               );
             } else if (json.content) {
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === streamingId
-                    ? { ...m, message: m.message + json.content }
-                    : m
+                  m.id === streamingId ? { ...m, message: m.message + json.content } : m
                 )
               );
             }
-          } catch {
-            // skip malformed SSE lines
-          }
+          } catch { /* skip malformed */ }
         }
       }
     } catch (err: unknown) {
@@ -161,12 +201,7 @@ export function useChatSession() {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === streamingId
-            ? {
-                ...m,
-                message: "Sorry, I'm having trouble connecting right now. Please try again.",
-                streaming: false,
-                module: "general",
-              }
+            ? { ...m, message: "Sorry, I'm having trouble connecting right now. Please try again.", streaming: false, module: "general" }
             : m
         )
       );
@@ -179,12 +214,26 @@ export function useChatSession() {
   const clearChat = useCallback(() => {
     abortRef.current?.abort();
     setIsTyping(false);
-    setMessages([]);
-    localStorage.removeItem(LS_MESSAGES);
+
+    // Archive before clearing
+    setMessages((prev) => {
+      archiveCurrentSession(sessionId, prev);
+      return [];
+    });
+
+    localStorage.removeItem(LS_CURRENT_MSGS);
     const newId = uuidv4();
-    localStorage.setItem(LS_SESSION, newId);
+    localStorage.setItem(LS_SESSION_ID, newId);
     setSessionId(newId);
-  }, []);
+  }, [sessionId]);
+
+  const loadSession = useCallback((session: ChatSession) => {
+    archiveCurrentSession(sessionId, messages);
+    setMessages(session.messages);
+    localStorage.setItem(LS_CURRENT_MSGS, JSON.stringify(session.messages));
+    localStorage.setItem(LS_SESSION_ID, session.id);
+    setSessionId(session.id);
+  }, [sessionId, messages]);
 
   return {
     sessionId,
@@ -195,5 +244,6 @@ export function useChatSession() {
     isTyping,
     sendMessage,
     clearChat,
+    loadSession,
   };
 }
