@@ -2,6 +2,7 @@ import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import LandingPage from "@/pages/landing";
 import ChatPage from "@/pages/chat";
+import ChatV2Page from "@/pages/chat-v2";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -18,6 +19,7 @@ function Router() {
     <Switch>
       <Route path="/" component={LandingPage} />
       <Route path="/chat" component={ChatPage} />
+      <Route path="/chat-v2" component={ChatV2Page} />
       <Route component={NotFound} />
     </Switch>
   );
