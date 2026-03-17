@@ -1,0 +1,20 @@
+packages:
+  "framer-motion": "For page transitions and smooth chat bubble entry animations"
+  "uuid": "For generating unique user session IDs"
+  "date-fns": "For formatting chat timestamps nicely"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to merge tailwind classes safely without conflicts"
+  "@radix-ui/react-slot": "Required for UI component composition"
+
+images:
+  - path: "artifacts/swadhikar/public/images/hero-bg.png"
+    description: "A soft, abstract, warm gradient background in deep saffron, soft off-white, and earthy Indian green. The style should be modern, clean, and optimistic, suitable for a civic tech application hero section. Subtle light leaks and organic shapes."
+    aspect_ratio: "16:9"
+  - path: "artifacts/swadhikar/public/images/logo-mark.png"
+    description: "A simple, elegant flat vector logo mark combining a stylized leaf (agriculture), a pillar (government/law), and a speech bubble (voice). Use a cohesive color palette of deep saffron and forest green on a transparent background."
+    aspect_ratio: "1:1"
+
+notes:
+  - We use the provided @workspace/api-client-react hooks for API interaction.
+  - Session ID is generated on the client and stored in localStorage.
+  - The chat interface is built to be highly responsive and mobile-first, resembling a modern messaging app.

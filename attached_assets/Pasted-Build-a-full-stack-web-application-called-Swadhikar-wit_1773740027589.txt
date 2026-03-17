@@ -1,0 +1,68 @@
+Build a full-stack web application called "Swadhikar (स्वाधिकार)" with a WhatsApp-style chat interface.
+
+Core Idea:
+This platform helps users understand their legal rights, government schemes, and farmer-related benefits through a conversational AI interface. The UI should feel like WhatsApp chat so that even non-technical users can easily interact.
+
+Tech Stack:
+- Frontend: React (with Tailwind CSS)
+- Backend: Node.js + Express
+- Database: SQLite (or simple JSON for MVP)
+- Optional AI: Mock AI responses (no real API needed initially)
+
+Main Feature:
+Create a WhatsApp-like chat UI where:
+- User sends messages (text input + microphone icon UI)
+- AI replies like a chat assistant
+- Chat bubbles styled like WhatsApp (green for user, white/grey for AI)
+- Scrollable chat history
+- Timestamp for messages
+
+Pages / Components:
+1. Home Page:
+   - App name: Swadhikar
+   - Tagline: "Your Rights. Your Voice. Your Country."
+   - Button: "Start Chat"
+
+2. Chat Page (Main Feature):
+   - WhatsApp-style layout:
+     - Top navbar (App name + language selector)
+     - Chat window (message bubbles)
+     - Input box (text + send button)
+   - Predefined AI responses based on keywords:
+     - If user types "legal" → show legal advisor response
+     - If user types "farmer" → show Kisan schemes
+     - If user types "scheme" → show government schemes
+   - Show step-by-step guidance in chat format
+
+3. Modules (simulate via chat responses):
+   - Legal Advisor
+   - Kisan Navigator
+   - Yojana Finder
+
+Design Requirements:
+- Mobile-first responsive design
+- Clean UI similar to WhatsApp
+- Use icons for send, mic, and chat
+- Simple and accessible UI
+
+Extra Features:
+- Add language dropdown (no real translation needed, just UI)
+- Add quick reply buttons like:
+   "Know my rights"
+   "Farmer schemes"
+   "Government benefits"
+
+Backend Requirements:
+- API endpoint: /chat
+- Accept user message and return predefined response
+- Store chat history (optional)
+
+Bonus:
+- Add typing animation for AI
+- Add message delay (simulate real chat)
+- Add user avatar and AI avatar
+
+Goal:
+The app should feel like chatting with a helpful assistant that guides users step-by-step to understand their rights and benefits.
+
+Make the project runnable and well-structured with clear folder organization.

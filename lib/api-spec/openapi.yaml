@@ -1,15 +1,16 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Swadhikar API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: chat
+    description: Chat operations
 paths:
   /healthz:
     get:
@@ -24,6 +25,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /chat:
+    post:
+      operationId: sendMessage
+      tags: [chat]
+      summary: Send a chat message
+      description: Send a message and get an AI response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+  /chat/history:
+    get:
+      operationId: getChatHistory
+      tags: [chat]
+      summary: Get chat history
+      description: Returns all chat messages in the session
+      responses:
+        "200":
+          description: Chat history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatHistoryResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +66,68 @@ components:
           type: string
       required:
         - status
-
+    ChatRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          description: The user's message
+        language:
+          type: string
+          description: The language selected by the user (e.g. 'en', 'hi', 'ta')
+          default: en
+        sessionId:
+          type: string
+          description: Session identifier for chat history
+      required:
+        - message
+    ChatResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        message:
+          type: string
+          description: The AI assistant's reply
+        timestamp:
+          type: string
+          format: date-time
+        module:
+          type: string
+          description: Which module handled this (legal, kisan, yojana, general)
+          enum: [legal, kisan, yojana, general]
+      required:
+        - id
+        - message
+        - timestamp
+        - module
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        module:
+          type: string
+          enum: [legal, kisan, yojana, general]
+      required:
+        - id
+        - role
+        - message
+        - timestamp
+    ChatHistoryResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+      required:
+        - messages
