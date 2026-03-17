@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 export const LANGUAGES = [
@@ -11,7 +11,7 @@ export const LANGUAGES = [
   { code: "kn", name: "ಕನ್ನಡ" },
   { code: "ml", name: "മലയാളം" },
   { code: "mr", name: "मराठी" },
-  { code: "gu", name: "ગુજરાતી" },
+  { code: "gu", name: "ગુજરાతી" },
 ];
 
 export interface ChatMessage {
@@ -23,45 +23,53 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+const LS_MESSAGES = "swadhikar_messages";
+const LS_SESSION  = "swadhikar_session_id";
+const LS_LANGUAGE = "swadhikar_language";
+
+function loadMessages(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(LS_MESSAGES);
+    if (!raw) return [];
+    return JSON.parse(raw) as ChatMessage[];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(msgs: ChatMessage[]) {
+  try {
+    localStorage.setItem(LS_MESSAGES, JSON.stringify(msgs.filter((m) => !m.streaming)));
+  } catch { /* ignore */ }
+}
+
 export function useChatSession() {
-  const [sessionId] = useState(() => {
-    const stored = localStorage.getItem("swadhikar_session_id");
+  const [sessionId, setSessionId] = useState(() => {
+    const stored = localStorage.getItem(LS_SESSION);
     if (stored) return stored;
     const newId = uuidv4();
-    localStorage.setItem("swadhikar_session_id", newId);
+    localStorage.setItem(LS_SESSION, newId);
     return newId;
   });
 
   const [language, setLanguage] = useState(() => {
-    return localStorage.getItem("swadhikar_language") || "en";
+    return localStorage.getItem(LS_LANGUAGE) || "en";
   });
 
   useEffect(() => {
-    localStorage.setItem("swadhikar_language", language);
+    localStorage.setItem(LS_LANGUAGE, language);
   }, [language]);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
   const [isTyping, setIsTyping] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  const fetchHistory = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/chat/history?sessionId=${encodeURIComponent(sessionId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.messages?.length > 0) {
-          setMessages(data.messages);
-        }
-      }
-    } catch {
-      // silently ignore
-    }
-  }, [sessionId]);
-
+  // Persist messages to localStorage on every change
   useEffect(() => {
-    setIsLoadingHistory(true);
-    fetchHistory().finally(() => setIsLoadingHistory(false));
-  }, [fetchHistory]);
+    saveMessages(messages);
+  }, [messages]);
+
+  const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isTyping) return;
@@ -76,7 +84,6 @@ export function useChatSession() {
     setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
-    // Create a placeholder streaming message
     const streamingId = uuidv4();
     const streamingMsg: ChatMessage = {
       id: streamingId,
@@ -87,10 +94,13 @@ export function useChatSession() {
     };
     setMessages((prev) => [...prev, streamingMsg]);
 
+    abortRef.current = new AbortController();
+
     try {
       const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortRef.current.signal,
         body: JSON.stringify({
           message: text.trim(),
           language,
@@ -124,7 +134,6 @@ export function useChatSession() {
             if (json.done) {
               finalModule = json.module ?? "general";
               finalTimestamp = json.timestamp ?? new Date().toISOString();
-              // Finalize streaming message
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === streamingId
@@ -133,7 +142,6 @@ export function useChatSession() {
                 )
               );
             } else if (json.content) {
-              // Append streamed text
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === streamingId
@@ -147,7 +155,8 @@ export function useChatSession() {
           }
         }
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
       console.error("Chat error:", err);
       setMessages((prev) =>
         prev.map((m) =>
@@ -163,8 +172,19 @@ export function useChatSession() {
       );
     } finally {
       setIsTyping(false);
+      abortRef.current = null;
     }
   }, [language, sessionId, isTyping]);
+
+  const clearChat = useCallback(() => {
+    abortRef.current?.abort();
+    setIsTyping(false);
+    setMessages([]);
+    localStorage.removeItem(LS_MESSAGES);
+    const newId = uuidv4();
+    localStorage.setItem(LS_SESSION, newId);
+    setSessionId(newId);
+  }, []);
 
   return {
     sessionId,
@@ -174,5 +194,6 @@ export function useChatSession() {
     isLoadingHistory,
     isTyping,
     sendMessage,
+    clearChat,
   };
 }

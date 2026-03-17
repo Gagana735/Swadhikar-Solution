@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { ArrowRight, Scale, Wheat, Building2, ShieldCheck, HeartHandshake, Languages, Sparkles } from "lucide-react";
+import { ArrowRight, Scale, Wheat, Building2, ShieldCheck, HeartHandshake, Languages } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function LandingPage() {
@@ -64,13 +64,6 @@ export default function LandingPage() {
                 >
                   Start Navigating Now
                   <ArrowRight className="w-5 h-5" />
-                </Link>
-                <Link
-                  href="/chat-v2"
-                  className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl border-2 border-primary bg-white text-primary font-bold text-lg hover:bg-primary/5 hover:-translate-y-1 transition-all shadow-lg"
-                >
-                  <Sparkles className="w-5 h-5" />
-                  Try New Chat Experience
                 </Link>
               </div>
 
